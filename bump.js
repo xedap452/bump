@@ -8,7 +8,7 @@ const telegramIds = fs.readFileSync(idsFilePath, 'utf8').trim().split('\n');
 const proxyFilePath = path.join(__dirname, 'proxy.txt');
 const proxies = fs.readFileSync(proxyFilePath, 'utf8').trim().split('\n');
 
-const authUrl = 'https://api.mmbump.pro/v1/auth';
+const authUrl = 'https://api.mmbump.pro/v1/loginJwt';
 const authHeaders = {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Encoding': 'gzip, deflate, br, zstd',
@@ -68,9 +68,14 @@ const finishFarmingIfNeeded = async (farmingData, farmingHeaders, proxyAgent) =>
                 console.error('Lỗi khi hoàn thành farming:', finishResponse.data);
             }
         } catch (error) {
-            console.error('Lỗi khi hoàn thành farming:', error.message);
             if (error.response) {
-                console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+                if (error.response.data.code === 431 && error.response.data.message === 'Нельзя закрыть сессию раньше времени') {
+                    console.log('Đang trong trạng thái farming');
+                } else {
+                    console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+                }
+            } else {
+                console.error('Error:', error.message);
             }
         }
     } else {
@@ -80,17 +85,20 @@ const finishFarmingIfNeeded = async (farmingData, farmingHeaders, proxyAgent) =>
 
 const xuly = async (telegramId, proxy) => {
     const proxyAgent = new HttpsProxyAgent(proxy);
-    const authPayload = `telegram_id=${telegramId}`;
+    const authPayload = {
+        "initData": telegramId
+    };
 
     try {
+        console.log('Gửi yêu cầu xác thực...');
         const authResponse = await axios.post(authUrl, authPayload, { headers: authHeaders, httpsAgent: proxyAgent });
         if (authResponse.status === 200) {
-            const hash = authResponse.data.hash;
+            const hash = authResponse.data.access_token;
 
             const farmingUrl = 'https://api.mmbump.pro/v1/farming';
             const farmingHeaders = {
                 ...authHeaders,
-                'Authorization': hash
+                'Authorization': `Bearer ${hash}`,
             };
 
             let farmingData;
@@ -98,6 +106,7 @@ const xuly = async (telegramId, proxy) => {
             const maxAttempts = 5;
 
             while (attempts < maxAttempts) {
+                console.log(`Gửi yêu cầu lấy dữ liệu farming (Lần ${attempts + 1})...`);
                 const farmingResponse = await axios.get(farmingUrl, { headers: farmingHeaders, httpsAgent: proxyAgent });
                 if (farmingResponse.status === 200) {
                     farmingData = farmingResponse.data;
